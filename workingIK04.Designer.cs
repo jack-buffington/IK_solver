@@ -145,6 +145,8 @@
       // showSplineCheckBox
       // 
       this.showSplineCheckBox.AutoSize = true;
+      this.showSplineCheckBox.Checked = true;
+      this.showSplineCheckBox.CheckState = System.Windows.Forms.CheckState.Checked;
       this.showSplineCheckBox.Location = new System.Drawing.Point(822, 47);
       this.showSplineCheckBox.Name = "showSplineCheckBox";
       this.showSplineCheckBox.Size = new System.Drawing.Size(83, 17);
@@ -191,15 +193,13 @@
       // avoidObstaclesCheckBox
       // 
       this.avoidObstaclesCheckBox.AutoSize = true;
-      this.avoidObstaclesCheckBox.Checked = true;
-      this.avoidObstaclesCheckBox.CheckState = System.Windows.Forms.CheckState.Checked;
       this.avoidObstaclesCheckBox.Location = new System.Drawing.Point(822, 115);
       this.avoidObstaclesCheckBox.Name = "avoidObstaclesCheckBox";
       this.avoidObstaclesCheckBox.Size = new System.Drawing.Size(101, 17);
       this.avoidObstaclesCheckBox.TabIndex = 15;
       this.avoidObstaclesCheckBox.Text = "Avoid obstacles";
       this.avoidObstaclesCheckBox.UseVisualStyleBackColor = true;
-      this.avoidObstaclesCheckBox.Click += new System.EventHandler(this.checkboxClick);
+      this.avoidObstaclesCheckBox.CheckStateChanged += new System.EventHandler(this.AvoidObstaclesCheckStateChanged);
       // 
       // Form1
       // 

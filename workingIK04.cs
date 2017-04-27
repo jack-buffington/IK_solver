@@ -33,16 +33,14 @@ namespace WindowsFormsApplication1
          public double pitch;
          public double roll;
          }
-
       public struct obstacle
          {
          public double X;
          public double Y;
          public double Z;
          public double radius;
-         public bool collsionDetected;
+         public bool   collsionDetected;
          }
-
       public struct segment
          {
          public double length;
@@ -68,6 +66,14 @@ namespace WindowsFormsApplication1
          public double tipX;
          public double tipY;
          public double tipZ;
+            // Collision stuff
+         public double shortestCollisionDistance;
+         public double collisionPercentage; // where a collision is relative to the splines
+         public point3D obstacleAvoidanceDirection; // this is really being used as a vector
+         //public double directionX;  // direction to move in case of collision
+         //public double directionY;
+         //public double directionZ;
+         public bool hadCollision;
          }
 
       point3D[] adjustedJointLocations;
@@ -81,6 +87,8 @@ namespace WindowsFormsApplication1
 
       public int numberOfSegments;
       public int numberOfObstacles;
+      
+
 
       public Form1()
          {
@@ -117,7 +125,7 @@ namespace WindowsFormsApplication1
 
 
          clickIndex = 0;
-         numberOfObstacles = 15;
+         numberOfObstacles = 5;
          obstacles = new obstacle[numberOfObstacles];    
          randomizeObstacles();
 
@@ -476,7 +484,7 @@ namespace WindowsFormsApplication1
                stretchAndOrientSegments(targetPoint,false);
                orientSegmentsAvoidingObstacles(targetPoint);
 
-               bool collisionDetected = detectCollisions();
+               
 
                splinePoints[0].X = segments[0].rootX;
                splinePoints[0].Y = segments[0].rootY;
@@ -487,6 +495,11 @@ namespace WindowsFormsApplication1
                splinePoints[2] = findMiddle(splinePoints[0], splinePoints[4]);
                splinePoints[1] = findMiddle(splinePoints[0], splinePoints[2]);
                splinePoints[3] = findMiddle(splinePoints[2], splinePoints[4]);
+
+               bool collisionDetected = detectCollisions();
+               if(avoidObstaclesCheckBox.Checked == true)
+                  avoidObstacles();
+
 
                }// end of if the tip of the chain is being clicked on
             else if (clickedOn == 2) // The control point closest to the root
@@ -514,6 +527,7 @@ namespace WindowsFormsApplication1
 
                stretchAndOrientSegmentsUsingSplines(tipPosition);
                detectCollisions();
+               
                }
 
             double splineLength = findSplineLength();
@@ -597,7 +611,10 @@ namespace WindowsFormsApplication1
          {// returns true if a collision is detected.
          // This code uses the strategy where it splits the arm segments up into multiple points and then checks 
          // for intersections by comparing the armRadius + obstacleRadius to the distance from the arm point to the 
-         // obstacle center
+         // obstacle center.
+         // This function also stores some information about the collision in the obstacles.
+         // Specifically, it stores the percent along the chain the collision is and what direction
+         // that segment should move in order to get out of the collision.  
          bool foundCollision = false;
          int numberOfObstacles = obstacles.GetLength(0);
 
@@ -607,8 +624,14 @@ namespace WindowsFormsApplication1
             obstacles[I].collsionDetected = false;
             }
 
+         // mark all segments as not having a collision
+         for (int I = 0; I < numberOfSegments; I++)
+            {
+            segments[I].hadCollision = false;
+            segments[I].shortestCollisionDistance = 100000;
+            }
 
-         // go through all segments and obstacles and see if they collide
+         // go through all segments and see if they collide
          for (int I = 0; I < numberOfSegments; I++)
             {
             //if (foundCollision)
@@ -621,25 +644,22 @@ namespace WindowsFormsApplication1
             segmentEnd.Y = segments[I].tipY;
             segmentEnd.Z = segments[I].tipZ;
 
-            // figure out how many points to divide the arm into based on arm radius. If I put points spaced at the same 
-            // distance as the arm radius then I have a potential error of 14% if a sharp obstacle were to come into contact
+            // figure out how many points to divide the segment into based on the radius. If I put points spaced at the same 
+            // distance as the segment radius then I have a potential error of 14% if a sharp obstacle were to come into contact
             // with the arm.  This drops to 2% if I space them at 1/2 of the arm radius.  
 
             int numberOfPoints = (int)Math.Ceiling(segments[I].length / (segments[I].radius / 2));
-            //Graphics g = drawingArea.CreateGraphics();
+            //double shortestDistance = 10000;
+            //double whichObstacle = -1;
+            //point3D whichPoint;
 
             for (int J = 0; J < numberOfPoints; J++)
                {
-               //if (foundCollision)
-               //   break;
                // find the position of this current point
                point3D currentPoint;
                currentPoint.X = segmentStart.X + ((double)J/numberOfPoints) * (segmentEnd.X - segmentStart.X);
                currentPoint.Y = segmentStart.Y + ((double)J/numberOfPoints) * (segmentEnd.Y - segmentStart.Y);
                currentPoint.Z = segmentStart.Z + ((double)J/numberOfPoints) * (segmentEnd.Z - segmentStart.Z);
-
-               //Pen p = new Pen(Color.Gray, 1);
-               //g.DrawEllipse(p, (int)currentPoint.X - (int)segments[I].radius, (int)currentPoint.Y - (int)segments[I].radius, (int)segments[I].radius * 2, (int)segments[I].radius * 2);
 
                for (int K = 0; K < numberOfObstacles; K++)
                   {
@@ -648,15 +668,24 @@ namespace WindowsFormsApplication1
                   double deltaY = currentPoint.Y - obstacles[K].Y;
                   double deltaZ = currentPoint.Z - obstacles[K].Z;
 
+                  // actualSpacing is the distance between the point on the segment and the obstacle
                   double actualSpacing = Math.Sqrt(deltaX * deltaX + deltaY * deltaY + deltaZ * deltaZ);
 
                   if (actualSpacing <= minimumSpacing)
                      {
                      foundCollision = true;
                      obstacles[K].collsionDetected = true;
-                     //break;
-                     }
+                     segments[I].hadCollision = true;
+                     if (segments[I].shortestCollisionDistance > actualSpacing)
+                        {
+                        segments[I].shortestCollisionDistance = actualSpacing;
 
+                        // figure out what percent along the spline this collsion is
+                        segments[I].collisionPercentage = findSplinePercentage02(obstacles[K]);
+                        // figure out what direction the segment should move
+                        segments[I].obstacleAvoidanceDirection = findAvoidanceDirection(segments[I], obstacles[K]);
+                        }// end of if this was a shorter distance for the collision
+                     }// end of if a detection was found
                   }// end of going through all of the obstacles
                }// end of going through all of the sub-points in the current segment
             }// end of going through all of the segments
@@ -872,16 +901,13 @@ namespace WindowsFormsApplication1
             // splines there are in total
             }
 
+
+
          // Now find where those points are relative to the bent spline.
          for (int I = 0; I < numberOfSegments; I++)
             adjustedJointLocations[I] = findCurvedSplineJointLocation(percentsAlongTheSpline[I], yOffsets[I]);
 
 
-
-
-
-
-         // ######
 
    
          // for each joint, figure out where those offset points are relative to the curved spline.
@@ -935,6 +961,8 @@ namespace WindowsFormsApplication1
          // offset point on that plane.  
          // TODO: need to change the code that rotates the offset point
 
+         if (percent > .99) // sometimes it gets values slightly above 1
+            percent = .99;
          point3D thePoint = giveMeAnEmptyPoint3D(); 
 
          // find the location of the point (on the spline) that is the given percent along the spline 
@@ -1050,11 +1078,244 @@ namespace WindowsFormsApplication1
 
 
          }
-
       private void checkboxClick(object sender, EventArgs e)
           {
           drawPicture();
           }
+      private void avoidObstacles()
+         {// This function looks at the collisions reported by the segments and figures out how to
+          // reposition the spline handles so that the chain can avoid them.   
+         point3D h1move = giveMeAnEmptyPoint3D();
+         point3D h2move = giveMeAnEmptyPoint3D(); // how much to move handle 1 and handle 2
+         int iterations = 0;
+         int maxIterations = 30;
+         double stepSize = 2; // how far to step each time in pixels
+         bool stillWorking = true;
+         bool collisionsDetected = detectCollisions();
 
+         while(stillWorking)
+            {
+            collisionsDetected = detectCollisions();
+            if (collisionsDetected)
+               {
+               // check to see if the spline length is greater than the total chain length or if 
+               // the maximum number of iterations have happened
+               double splineLength = findSplineLength();
+               double chainLength = findChainLength();
+               if (splineLength > chainLength || iterations > maxIterations)
+                  stillWorking = false;
+               else
+                  {//  figure out how it should move the control points, move them, and redraw
+                  for (int I = 0; I < numberOfSegments; I++)
+                     {
+                     if (segments[I].hadCollision == true)
+                        {
+                        // This isn't correct.   
+                        double percent = segments[I].collisionPercentage;
+                        h2move.X += percent * segments[I].obstacleAvoidanceDirection.X;
+                        h1move.X += (1 - percent) * segments[I].obstacleAvoidanceDirection.X;
+                        h2move.Y += percent * segments[I].obstacleAvoidanceDirection.Y;
+                        h1move.Y += (1 - percent) * segments[I].obstacleAvoidanceDirection.Y;
+                        h2move.Z += percent * segments[I].obstacleAvoidanceDirection.Z;
+                        h1move.Z += (1 - percent) * segments[I].obstacleAvoidanceDirection.Z;
+                        }
+                     }// end of going through all of the segments looking for collisions
+
+                  // multiply the move amounts by the step size
+                  h1move.X *= stepSize;
+                  h1move.Y *= stepSize;
+                  h1move.Z *= stepSize;
+                  h2move.X *= stepSize;
+                  h2move.Y *= stepSize;
+                  h2move.Z *= stepSize;
+
+                  // move the handles
+                  splinePoints[1].X += h1move.X;
+                  splinePoints[1].Y += h1move.Y;
+                  splinePoints[1].Z += h1move.Z;
+
+                  splinePoints[3].X += h2move.X;
+                  splinePoints[3].Y += h2move.Y;
+                  splinePoints[3].Z += h2move.Z;
+
+                  // Make sure that the splines still have tangency
+                  splinePoints[2] = findMiddle(splinePoints[1], splinePoints[3]);
+
+                  point3D tipPosition = giveMeAnEmptyPoint3D();
+                  tipPosition.X = segments[numberOfSegments - 1].tipX;
+                  tipPosition.Y = segments[numberOfSegments - 1].tipY;
+                  tipPosition.Z = segments[numberOfSegments - 1].tipZ;
+                  stretchAndOrientSegmentsUsingSplines(tipPosition);
+
+                  //drawPicture();
+                  //Thread.Sleep(200);  // delay for 1/5th of a second
+
+                  iterations++;
+                  }
+               }// end of if a collision was detected
+            else
+               {
+               stillWorking = false;
+               drawPicture();
+               }
+            
+            }// end of if it is still working
+         }// end of avoid obstacles
+      private point3D findAvoidanceDirection(segment s, obstacle o)
+         {
+         // find the closest point on the line to the obstacle 
+         point3D p; // point on the line
+         p.X = s.rootX;
+         p.Y = s.rootY;
+         p.Z = s.rootZ;
+
+         point3D v; // line vector
+         v.X = s.tipX - s.rootX;
+         v.Y = s.tipY - s.rootY;
+         v.Z = s.tipZ - s.rootZ;
+
+         point3D g; // general point  (just to make it work out with my notes)
+         g.X = o.X;
+         g.Y = o.Y;
+         g.Z = o.Z;
+
+         // solve for t
+         double t = (v.X * (g.X - p.X) + v.Y * (g.Y - p.Y) + v.Z * (g.Z - p.Z)) / (v.X * v.X + v.Y * v.Y + v.Z * v.Z);
+
+         // solve for the point on the line that is closest to the obstacle
+         point3D closestPoint;
+         closestPoint.X = p.X + t * v.X;
+         closestPoint.Y = p.Y + t * v.Y;
+         closestPoint.Z = p.Z + t * v.Z;
+
+         // create a vector from the obstacle to the point that was found
+         point3D ov = giveMeAnEmptyPoint3D(); //output vector
+         ov.X = closestPoint.X - g.X;
+         ov.Y = closestPoint.Y - g.Y;
+         ov.Z = closestPoint.Z - g.Z;
+
+         // Make the vector be a unit vector
+         double vectorLength = Math.Sqrt(ov.X * ov.X + ov.Y * ov.Y + ov.Z * ov.Z);
+         ov.X /= vectorLength;
+         ov.Y /= vectorLength;
+         ov.Z /= vectorLength;
+
+         return ov;
+         }
+      private double findSplinePercentage(obstacle o)
+         {// Figures out where the obstacle is relative to the spline so that the control handles can be adjusted
+          // appropriately.   This function takes into account that the spine can be curved.
+
+         // To do what it needs to do, it divides up the spine into twenty line segments.  From the center of each segment
+         // it projects a perpendicular plane.  It checks to see which plane is closest to the obstacle.  That plane 
+         // determines the winner and the percentage is found in 5 percent increments based on which plane won.
+
+         // figure out what percentage of the total length each spline represents
+         double eachSplinesPercentage = 1 / numberOfSplines;
+         point3D pointA, pointB;
+         point3D startPoint, endPoint, midPoint, planeVector, o2pVector; // object2planeVector
+         double lowestDistance = 10000;
+         double lowestDistancePercentage = 1;
+
+         for (int I = 0; I < numberOfSplines; I++)
+            {
+            point3D p1 = splinePoints[2 * I];
+            point3D p2 = splinePoints[(2 * I) + 1];
+            point3D p3 = splinePoints[(2 * I) + 2];
+
+            for (int J = 0; J < 10; J++)
+               {// divide each spline into 10 segments
+
+               // find the start point of this segment
+               double percentage = (double)J / 10;
+               pointA = interpolateBetweenPoints(p1, p2, percentage);
+               pointB = interpolateBetweenPoints(p2, p3, percentage);
+               startPoint = interpolateBetweenPoints(pointA, pointB, percentage);
+
+               // find the end point of this segment
+               percentage = (double)(J+1) / 10;
+               pointA = interpolateBetweenPoints(p1, p2, percentage);
+               pointB = interpolateBetweenPoints(p2, p3, percentage);
+               endPoint = interpolateBetweenPoints(pointA, pointB, percentage);
+
+               // find the mid point, which will be the point used to construct the plane.
+               midPoint = interpolateBetweenPoints(startPoint, endPoint, .5);
+
+               // find the vector that will define the plane.
+               planeVector.X = endPoint.X - startPoint.X;
+               planeVector.Y = endPoint.Y - startPoint.Y;
+               planeVector.Z = endPoint.Z - startPoint.Z;
+               // normalize the vector
+               double vectorLength = Math.Sqrt(planeVector.X * planeVector.X + planeVector.Y * planeVector.Y + planeVector.Z * planeVector.Z);
+               planeVector.X /= vectorLength;
+               planeVector.Y /= vectorLength;
+               planeVector.Z /= vectorLength;
+
+               // Now that I have all of the information needed to construct the plane, find the distance
+               // between the object's center and the plane.
+               o2pVector.X = midPoint.X - o.X;
+               o2pVector.Y = midPoint.Y - o.Y;
+               o2pVector.Z = midPoint.Z - o.Z;
+
+               // the dot product of these two vectors is the distance to between them
+               double thisDistance = Math.Abs(o2pVector.X * planeVector.X + o2pVector.Y * planeVector.Y + o2pVector.Z * planeVector.Z);
+
+               if (thisDistance < lowestDistance)
+                  {
+                  lowestDistance = thisDistance;
+                  lowestDistancePercentage = eachSplinesPercentage * (double)I + (eachSplinesPercentage / (double)10) * J;
+                  }
+
+               }// end of going through all segments in the spline section
+            }// end of going through the splines
+         Debug.WriteLine("The intersection's percentage is " + lowestDistancePercentage + "  Lowest distance: " + lowestDistance);
+         return lowestDistancePercentage;
+         }// end of findSplinePercentage
+      private double findSplinePercentage02(obstacle o)
+         {// finds the percent along a straight-line path between the root and the tip 
+          // where the obstacle is closest to that line.
+         point3D p1;
+         p1.X = segments[0].rootX;
+         p1.Y = segments[0].rootY;
+         p1.Z = segments[0].rootZ;
+
+         point3D p2;
+         p2.X = segments[numberOfSegments-1].tipX;
+         p2.Y = segments[numberOfSegments - 1].tipY;
+         p2.Z = segments[numberOfSegments - 1].tipZ;
+
+         point3D v1;
+         v1.X = p2.X - p1.X;
+         v1.Y = p2.Y - p1.Y;
+         v1.Z = p2.Z - p1.Z;
+
+         point3D v2;
+         v2.X = o.X - p1.X;
+         v2.Y = o.Y - p1.Y;
+         v2.Z = o.Z - p1.Z;
+
+         // project the v2 vector onto v1 using the dot product
+         double rootToTipLength = Math.Sqrt(v1.X * v1.X + v1.Y * v1.Y + v1.Z * v1.Z);
+         double projectedLength = (v2.X * v1.X + v2.Y * v1.Y + v2.Z * v1.Z) / rootToTipLength;
+
+         return projectedLength / rootToTipLength;
+         }// end of findSplinePercentage02
+      private double findChainLength()
+         {// sums up the lengths of the chain's segments
+         double chainLength = 0;
+         for (int I = 0; I < numberOfSegments; I++)
+            {
+            chainLength += segments[I].length;
+            }
+         return chainLength;
+         }
+
+      private void AvoidObstaclesCheckStateChanged(object sender, EventArgs e)
+         {
+         if (avoidObstaclesCheckBox.Checked)
+            {
+            avoidObstacles();
+            }
+         }
       }// end of Form1 class
    }// end of WindowsFormsApplication1
